@@ -21,7 +21,7 @@ HF_NAMES = {
     'honest_alpaca_7B': 'results_dump/alpaca_7B_seed_42_top_48_heads_alpha_15', 
     'vicuna_7B': 'AlekseyKorshuk/vicuna-7b', 
     'honest_vicuna_7B': 'results_dump/vicuna_7B_seed_42_top_48_heads_alpha_15', 
-    'llama2_chat_7B': 'meta-llama/Llama-2-7b-chat-hf', 
+    'llama2_chat_7B': '/mnt/data/user/zhang_yuansen/PTMs/llama-2-7b-chat', 
     'honest_llama2_chat_7B': 'results_dump/llama2_chat_7B_seed_42_top_48_heads_alpha_15', 
 }
 
@@ -54,7 +54,8 @@ def main():
     dataset = load_dataset("truthful_qa", "multiple_choice")['validation']
     golden_q_order = list(dataset["question"])
     df = df.sort_values(by='Question', key=lambda x: x.map({k: i for i, k in enumerate(golden_q_order)}))
-    
+    print(df['Question'])
+
     # get two folds using numpy
     fold_idxs = np.array_split(np.arange(len(df)), args.num_fold)
 
@@ -71,8 +72,11 @@ def main():
 
     # load activations 
     head_wise_activations = np.load(f"../features/{args.model_name}_{args.dataset_name}_head_wise.npy")
+    print("head_wise_activations shape: ", head_wise_activations.shape)
     labels = np.load(f"../features/{args.model_name}_{args.dataset_name}_labels.npy")
+    print("labels shape: ", labels.shape)
     head_wise_activations = rearrange(head_wise_activations, 'b l (h d) -> b l h d', h = num_heads)
+    print("head_wise_activations shape: ", head_wise_activations.shape)
 
     # tuning dataset: no labels used, just to get std of activations along the direction
     activations_dataset = args.dataset_name if args.activations_dataset is None else args.activations_dataset
@@ -130,7 +134,7 @@ def main():
             filename += '_random'
         if args.use_honest:
             filename = 'honest_' + filename
-                    
+
         curr_fold_results = alt_tqa_evaluate(
             {args.model_name: model}, 
             ['judge', 'info', 'mc'], 
@@ -143,7 +147,6 @@ def main():
             judge_name=args.judge_name, 
             info_name=args.info_name
         )
-
         print(f"FOLD {i}")
         print(curr_fold_results)
 
@@ -153,7 +156,8 @@ def main():
     results = np.array(results)
     final = results.mean(axis=0)
 
-    print(f'True*Info Score: {final[1]*final[0]}, True Score: {final[1]}, Info Score: {final[0]}, MC1 Score: {final[2]}, MC2 Score: {final[3]}, CE Loss: {final[4]}, KL wrt Original: {final[5]}')
+    # delete CE Loss: {final[4]}, KL wrt Original: {final[5]}
+    print(f'True*Info Score: {final[1]*final[0]}, True Score: {final[1]}, Info Score: {final[0]}, MC1 Score: {final[2]}, MC2 Score: {final[3]}')
 
 if __name__ == "__main__":
     main()

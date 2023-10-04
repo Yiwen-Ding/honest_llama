@@ -21,27 +21,27 @@ from sklearn.linear_model import LogisticRegression
 import pickle
 from functools import partial
 
-from truthfulqa import utilities, models, metrics
+from TruthfulQA.truthfulqa import utilities, models, metrics
 import openai
-from truthfulqa.configs import BEST_COL, ANSWER_COL, INCORRECT_COL
+from TruthfulQA.truthfulqa.configs import BEST_COL, ANSWER_COL, INCORRECT_COL
 
 ENGINE_MAP = {
     'llama_7B': 'decapoda-research/llama-7b-hf', 
     'alpaca_7B': 'circulus/alpaca-7b', 
     'vicuna_7B': 'AlekseyKorshuk/vicuna-7b', 
-    'llama2_chat_7B': 'meta-llama/Llama-2-7b-chat-hf', 
+    'llama2_chat_7B': '/mnt/data/user/zhang_yuansen/PTMs/llama-2-7b-chat', 
 }
 
-from truthfulqa.utilities import (
+from TruthfulQA.truthfulqa.utilities import (
     format_prompt,
     format_prompt_with_answer_strings,
     split_multi_answer,
     format_best,
     find_start,
 )
-from truthfulqa.presets import preset_map, COMPARE_PRIMER
-from truthfulqa.models import find_subsequence, set_columns, MC_calcs
-from truthfulqa.evaluate import format_frame, data_to_dict
+from TruthfulQA.truthfulqa.presets import preset_map, COMPARE_PRIMER
+from TruthfulQA.truthfulqa.models import find_subsequence, set_columns, MC_calcs
+from TruthfulQA.truthfulqa.evaluate import format_frame, data_to_dict
 
 
 def load_nq():
@@ -156,15 +156,30 @@ def get_llama_activations_bau(model, prompt, device):
 
     with torch.no_grad():
         prompt = prompt.to(device)
+        # ret 提取特定名称的参数
         with TraceDict(model, HEADS+MLPS) as ret:
             output = model(prompt, output_hidden_states = True)
+        # hidden_states: (num_hidden_layers + 1, seq_len, hidden_size)
         hidden_states = output.hidden_states
         hidden_states = torch.stack(hidden_states, dim = 0).squeeze()
         hidden_states = hidden_states.detach().cpu().numpy()
+        # print("hidden_states")
+        # print(hidden_states.shape)
+        # print(hidden_states)
+
+        # head_wise_hidden_states: (head_no, seq_len, hidden_size)
         head_wise_hidden_states = [ret[head].output.squeeze().detach().cpu() for head in HEADS]
         head_wise_hidden_states = torch.stack(head_wise_hidden_states, dim = 0).squeeze().numpy()
+        # print("head_wise_hidden_states")
+        # print(head_wise_hidden_states.shape)
+        # print(head_wise_hidden_states)
+
+        # mlp_wise_hidden_states: (head_no, seq_len, hidden_size)
         mlp_wise_hidden_states = [ret[mlp].output.squeeze().detach().cpu() for mlp in MLPS]
         mlp_wise_hidden_states = torch.stack(mlp_wise_hidden_states, dim = 0).squeeze().numpy()
+        # print("mlp_wise_hidden_states")
+        # print(mlp_wise_hidden_states.shape)
+        # print(mlp_wise_hidden_states)
 
     return hidden_states, head_wise_hidden_states, mlp_wise_hidden_states
 
@@ -394,7 +409,7 @@ def run_ce_loss(model_key, model=None, tokenizer=None, device='cuda', interventi
 
     # load owt text
     # note this is tokenized with llama tokenizer
-    dataset = load_dataset("stas/openwebtext-10k")['train']
+    dataset = load_dataset("/root/.cache/huggingface/datasets/stas/openwebtext-10k")['train']
     dataset = dataset.shuffle()
     dataset = dataset.select(range(num_samples))
 
@@ -433,7 +448,7 @@ def run_kl_wrt_orig(model_key, model=None, tokenizer=None, device='cuda', interv
 
     # load owt text
     # note this is tokenized with llama tokenizer
-    dataset = load_dataset("stas/openwebtext-10k")['train']
+    dataset = load_dataset("/root/.cache/huggingface/datasets/stas/openwebtext-10k")['train']
     dataset = dataset.shuffle()
     dataset = dataset.select(range(num_samples))
 
@@ -479,7 +494,7 @@ def run_kl_wrt_orig(model_key, model=None, tokenizer=None, device='cuda', interv
 
     return np.mean(kl_divs)
 
-def alt_tqa_evaluate(models, metric_names, input_path, output_path, summary_path, device='cpu', verbose=False, preset='qa', interventions={}, intervention_fn=None, cache_dir=None, separate_kl_device=None, instruction_prompt=True, many_shot_prefix=None, judge_name=None, info_name=None): 
+def alt_tqa_evaluate(models, metric_names, input_path, output_path, summary_path, device, verbose=False, preset='qa', interventions={}, intervention_fn=None, cache_dir=None, separate_kl_device=None, instruction_prompt=True, many_shot_prefix=None, judge_name=None, info_name=None): 
     """
     Inputs:
     models: a dictionary of the form {model_name: model} where model is a HF transformer # TODO: doesn't work with models other than llama right now
@@ -571,20 +586,24 @@ def alt_tqa_evaluate(models, metric_names, input_path, output_path, summary_path
 
         for metric in metric_names: 
             if metric == 'mc':
+                print("mc")
                 continue
             if metric == 'bleurt':
+                print("bleurt")
                 try:
                     questions = metrics.run_BLEURT(model_key, questions, cache_dir=cache_dir)
                     utilities.save_questions(questions, output_path)
                 except Exception as err:
                     print(err)
             elif metric in ['bleu', 'rouge']:
+                print("bleu rouge")
                 try:
                     questions = metrics.run_bleu_and_rouge(model_key, questions)
                     utilities.save_questions(questions, output_path)
                 except Exception as err:
                     print(err)
             elif metric in ['judge', 'info']:
+                print("judge info")
                 try:
                     if metric == 'judge':
                         questions = metrics.run_end2end_GPT3(model_key, 'GPT-judge', judge_name, questions, info=False)
@@ -620,16 +639,16 @@ def alt_tqa_evaluate(models, metric_names, input_path, output_path, summary_path
     results['CE Loss'] = np.nan
     results['KL wrt Orig'] = np.nan
 
-    for model_key in models.keys(): 
+    # for model_key in models.keys(): 
         # if model_key not in questions.columns:
         #     warnings.warn("Answers missing for {0}!".format(model_key), stacklevel=2)
         #     continue
-        if 'llama' in model_key or 'alpaca' in model_key or 'vicuna' in model_key:
-            ce_loss = run_ce_loss(model_key, model=llama_model, tokenizer=llama_tokenizer, device=device, interventions=interventions, intervention_fn=intervention_fn)
-            kl_wrt_orig = run_kl_wrt_orig(model_key, model=llama_model, tokenizer=llama_tokenizer, device=device, interventions=interventions, intervention_fn=intervention_fn, separate_kl_device=separate_kl_device)
+    #    if 'llama' in model_key or 'alpaca' in model_key or 'vicuna' in model_key:
+    #        ce_loss = run_ce_loss(model_key, model=llama_model, tokenizer=llama_tokenizer, device=device, interventions=interventions, intervention_fn=intervention_fn)
+    #        kl_wrt_orig = run_kl_wrt_orig(model_key, model=llama_model, tokenizer=llama_tokenizer, device=device, interventions=interventions, intervention_fn=intervention_fn, separate_kl_device=separate_kl_device)
 
-        results.loc[model_key, 'CE Loss'] = ce_loss
-        results.loc[model_key, 'KL wrt Orig'] = kl_wrt_orig
+    #    results.loc[model_key, 'CE Loss'] = ce_loss
+    #    results.loc[model_key, 'KL wrt Orig'] = kl_wrt_orig
 
     # save results
     results.to_csv(summary_path, index=False)
@@ -648,9 +667,15 @@ def train_probes(seed, train_set_idxs, val_set_idxs, separated_head_wise_activat
     probes = []
 
     all_X_train = np.concatenate([separated_head_wise_activations[i] for i in train_set_idxs], axis = 0)
+    print("all_X_train shape:", all_X_train.shape)
     all_X_val = np.concatenate([separated_head_wise_activations[i] for i in val_set_idxs], axis = 0)
+    print("all_X_val:", all_X_val.shape)
     y_train = np.concatenate([separated_labels[i] for i in train_set_idxs], axis = 0)
+    print("y_train:", y_train.shape)
     y_val = np.concatenate([separated_labels[i] for i in val_set_idxs], axis = 0)
+    print("y_val:", y_val.shape)
+    print("num_layers:", num_layers)
+    print("num_heads:", num_heads)
 
     for layer in tqdm(range(num_layers)): 
         for head in range(num_heads): 
@@ -664,7 +689,7 @@ def train_probes(seed, train_set_idxs, val_set_idxs, separated_head_wise_activat
             probes.append(clf)
 
     all_head_accs_np = np.array(all_head_accs)
-
+    print("probes shape:", len(probes))
     return probes, all_head_accs_np
 
 def get_top_heads(train_idxs, val_idxs, separated_activations, separated_labels, num_layers, num_heads, seed, num_to_intervene, use_random_dir=False):
@@ -709,11 +734,12 @@ def get_separated_activations(labels, head_wise_activations):
 
     # separate activations by question
     dataset=load_dataset('truthful_qa', 'multiple_choice')['validation']
+    print(dataset[0])
     actual_labels = []
     for i in range(len(dataset)):
         actual_labels.append(dataset[i]['mc2_targets']['labels'])
 
-    idxs_to_split_at = np.cumsum([len(x) for x in actual_labels])        
+    idxs_to_split_at = np.cumsum([len(x) for x in actual_labels])     
 
     labels = list(labels)
     separated_labels = []
@@ -739,6 +765,8 @@ def get_com_directions(num_layers, num_heads, train_set_idxs, val_set_idxs, sepa
             usable_labels = np.concatenate([separated_labels[i] for i in usable_idxs], axis=0)
             true_mass_mean = np.mean(usable_head_wise_activations[usable_labels == 1], axis=0)
             false_mass_mean = np.mean(usable_head_wise_activations[usable_labels == 0], axis=0)
+            
+            # 向true方向偏移
             com_directions.append(true_mass_mean - false_mass_mean)
     com_directions = np.array(com_directions)
 

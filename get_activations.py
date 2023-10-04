@@ -25,8 +25,8 @@ def main():
     HF_NAMES = {
         'llama_7B': 'decapoda-research/llama-7b-hf', 
         'alpaca_7B': 'circulus/alpaca-7b', 
-        'vicuna_7B': 'AlekseyKorshuk/vicuna-7b', 
-        'llama2_chat_7B': 'meta-llama/Llama-2-7b-chat-hf', 
+        'vicuna_7B': 'AlekseyKorshuk/vicuna-7b',
+        'llama2_chat_7B': '/mnt/data/user/zhang_yuansen/PTMs/llama-2-7b-chat', 
     }
 
     MODEL = HF_NAMES[args.model_name]
@@ -38,13 +38,13 @@ def main():
     r = model.to(device)
 
     if args.dataset_name == "tqa_mc2": 
-        dataset = load_dataset("truthful_qa", "multiple_choice")['validation']
+        dataset = load_dataset("/root/.cache/huggingface/datasets/truthful_qa", "multiple_choice")['validation']
         formatter = tokenized_tqa
     elif args.dataset_name == "tqa_gen": 
-        dataset = load_dataset("truthful_qa", 'generation')['validation']
+        dataset = load_dataset("/root/.cache/huggingface/datasets/truthful_qa", 'generation')['validation']
         formatter = tokenized_tqa_gen
     elif args.dataset_name == 'tqa_gen_end_q': 
-        dataset = load_dataset("truthful_qa", 'generation')['validation']
+        dataset = load_dataset("/root/.cache/huggingface/datasets/truthful_qa", 'generation')['validation']
         formatter = tokenized_tqa_gen_end_q
     else: 
         raise ValueError("Invalid dataset name")
@@ -63,9 +63,14 @@ def main():
     print("Getting activations")
     for prompt in tqdm(prompts):
         layer_wise_activations, head_wise_activations, _ = get_llama_activations_bau(model, prompt, device)
+        # 只取最后一个token处的模型logits
         all_layer_wise_activations.append(layer_wise_activations[:,-1,:])
         all_head_wise_activations.append(head_wise_activations[:,-1,:])
-
+    
+    print("prompts shape: ", np.array(prompts).shape)
+    print("layer_wise_activations shape: ", np.array(all_layer_wise_activations).shape)
+    print("head_wise_activations shape: ", np.array(all_head_wise_activations).shape)
+    print("labels shape: ", np.array(labels).shape)
     print("Saving labels")
     np.save(f'features/{args.model_name}_{args.dataset_name}_labels.npy', labels)
 
